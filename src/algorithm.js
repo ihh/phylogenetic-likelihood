@@ -101,7 +101,7 @@ const indexAlphabet = (alphabet) => {
   }
 }
 
-const getMatrixExponentials = (model, treeIndex) => {
+const getLogMatrixExponentials = (model, treeIndex) => {
   const chars = model.alphabet.split('')
   const rateMatrix = chars.map ((ci, i) => chars.map (cj, j) => model.subrate[ci][cj] || 0)
   chars.forEach ((ci, i) => {
@@ -111,7 +111,7 @@ const getMatrixExponentials = (model, treeIndex) => {
         rateMatrix[i][i] -= rateMatrix[i][j];
     }
   })
-  return treeIndex.preorderBranches.map ((branch) => mathjs.expm (mathjs.multiply (rateMatrix, branch[2])))
+  return treeIndex.preorderBranches.map ((branch) => mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
 }
 
 const initColumn = (treeIndex, alphabetIndex) => {
@@ -121,12 +121,22 @@ const initColumn = (treeIndex, alphabetIndex) => {
 
 const logsumexp = (a, b) => Math.max (a, b) + Math.log (1 + Math.exp (-Math.abs (a - b)));
 
-const fillColumnUp = (treeIndex, alphabetIndex, columnChars, column) => {
+// logF[node][state] = P(observations under node|state of node)
+// logE[node][state] = P(observations under node|state of node's parent)
+const fillLeavesToRoot = (treeIndex, alphabetIndex, columnChars, logMatrixExponentials, logF, logE) => {
   const nodes = treeIndex.nodes.length, alphSize = alphabetIndex.size;
-  treeIndex.leafPreorderRank.forEach ((leaf) => column[leaf].set (alphabetIndex.init (columnChars[leaf])))
-  treeIndex.internalPreorderRank.forEach ((leaf) => column[leaf].set (alphabetIndex.initForMissing))
-  treeIndex.postorderBranches.forEach ((branch) => {
-    // ...
+  treeIndex.leafPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.init (columnChars[leaf])))
+  treeIndex.internalPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.initForMissing))
+  treeIndex.postorderBranches.forEach ((branch, b) => {
+    const logMatrixExp = logMatrixExponentials[b];
+    const logFparent = logF[b[0]], logFchild = logF[b[1]], logEchild = logE[b[1]];
+    for (let ci = 0; ci < alphSize; ++ci) {
+      let logp = -Infinity
+      for (let cj = 0; cj < alphSize; ++cj)
+        logp = logsumexp (logp, logMatrixExp[ci][cj] + logFchild[cj])
+      logEchild[ci] = logp
+      logFparent[ci] += logp
+    }
   })
 }
 
