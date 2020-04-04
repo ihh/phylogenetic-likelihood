@@ -23,18 +23,19 @@ const indexBranchList = (branches) => {
       throw new Error ("Multiple possible root nodes, and no root specified")
     root = roots[0]
   }
-  let children = {}, branchLength = {}, branchByChild = {}
+  let children = {}, parent = {}, branchLength = {}, branchByChild = {}
   children[root] = []
   branchLength[root] = 0
   branches.forEach ((branch) => {
-    const parent = branch[0], child = branch[1], len = branch[2]
-    children[parent] = children[parent] || []
+    const p = branch[0], child = branch[1], len = branch[2]
+    children[p] = children[p] || []
     children[child] = children[child] || []
-    children[parent].push (child)
+    children[p].push (child)
+    parent[child] = p
     branchLength[child] = len
     branchByChild[child] = branch
   })
-  let descendants = {}, distFromRoot = {}, maxDistFromRoot = 0
+  let descendants = {}, siblings = {}, distFromRoot = {}, maxDistFromRoot = 0
   const getSubtree = (node, parent) => {
     if (!node)
       throw new Error ("All nodes must be named")
@@ -47,9 +48,11 @@ const indexBranchList = (branches) => {
     let clade = []
     clade = kids.reduce ((clade, child) => clade.concat (getSubtree (child, node)), [])
     descendants[node] = clade
+    kids.forEach ((c) => siblings[c] = kids.filter ((s) => s != c));
     return [node].concat (clade)
   }
   const preorder = getSubtree (root), nodes = preorder
+  siblings[root] = []
   let preorderRank = {}
   preorder.forEach ((node, n) => preorderRank[node] = n)
   const preorderBranches = preorder.slice(1).map ((node) => {
@@ -61,7 +64,11 @@ const indexBranchList = (branches) => {
   const internals = nodes.filter ((node) => children[node].length != 0)
   const leafPreorderRank = leaves.map ((node) => preorderRank[node])
   const internalPreorderRank = internals.map ((node) => preorderRank[node])
-  return { root, nodes, leaves, internals, branches, children, descendants, branchLength, preorder, preorderRank, preorderBranches, postorderBranches, leafPreorderRank, internalPreorderRank, distFromRoot, maxDistFromRoot }
+  const siblingsPreorderRank = preorder.map ((node) => siblings[node].map ((sibling) => preorderRank[sibling]))
+  const parentPreorderRank = preorder.map ((node) => typeof(parent[node]) === 'undefined' ? -1 : preorderRank[parent[node]])
+  return { root, nodes, leaves, internals, branches, children, descendants, siblings, parent,
+           branchLength, distFromRoot, maxDistFromRoot,
+           preorder, preorderRank, preorderBranches, postorderBranches, leafPreorderRank, internalPreorderRank, siblingsPreorderRank, parentPreorderRank }
 }
 
 const getNewickJSBranchList = (newickJS) => {
@@ -101,7 +108,7 @@ const indexAlphabet = (alphabet) => {
   }
 }
 
-const getLogMatrixExponentials = (model, treeIndex) => {
+const getLogProbs = (model, treeIndex) => {
   const chars = model.alphabet.split('')
   const rateMatrix = chars.map ((ci, i) => chars.map (cj, j) => model.subrate[ci][cj] || 0)
   chars.forEach ((ci, i) => {
@@ -111,9 +118,12 @@ const getLogMatrixExponentials = (model, treeIndex) => {
         rateMatrix[i][i] -= rateMatrix[i][j];
     }
   })
-  return treeIndex.preorderBranches.map ((branch) => mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
+  const logMatrixExponentials = treeIndex.preorderBranches.map ((branch) => mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
+  const logRootProb = model.rootprob.map ((p) => mathjs.log(p))
+  return { logMatrixExponentials, logRootProb }
 }
 
+// initColumn allocates the logE, logF, and logG data structures
 const initColumn = (treeIndex, alphabetIndex) => {
   return new Array (treeIndex.nodes.length).fill(0)
     .map (() => new Float32Array (alphabetIndex.size))
@@ -123,8 +133,13 @@ const logsumexp = (a, b) => Math.max (a, b) + Math.log (1 + Math.exp (-Math.abs 
 
 // logF[node][state] = P(observations under node|state of node)
 // logE[node][state] = P(observations under node|state of node's parent)
-const fillLeavesToRoot = (treeIndex, alphabetIndex, columnChars, logMatrixExponentials, logF, logE) => {
+// logL = log-likelihood of entire column
+const fillLeavesToRoot = (opts) => {
+  let { treeIndex, alphabetIndex, columnChars, model, logProbs, logF, logE } = opts
   const nodes = treeIndex.nodes.length, alphSize = alphabetIndex.size;
+  const { logMatrixExponentials, logRootProb } = logProbs;
+  logE = logE || initColumn (treeIndex, alphabetIndex)
+  logF = logF || initColumn (treeIndex, alphabetIndex)
   treeIndex.leafPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.init (columnChars[leaf])))
   treeIndex.internalPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.initForMissing))
   treeIndex.postorderBranches.forEach ((branch, b) => {
@@ -138,6 +153,49 @@ const fillLeavesToRoot = (treeIndex, alphabetIndex, columnChars, logMatrixExpone
       logFparent[ci] += logp
     }
   })
+  let logL = -Infinity
+  if (nodes > 0)
+    for (let ci = 0; ci < alphSize; ++ci)
+      logL = logsumexp (logL, logRootProb[ci] + logF[0][ci])
+  return { logE, logF, logL }
+}
+
+// logG[node][state] = P(observations not under node,state of node)
+const fillRootToLeaves = (opts) => {
+  const { treeIndex, alphabetIndex, columnChars, logProbs, logF, logE, logG } = opts
+  const nodes = treeIndex.nodes.length, alphSize = alphabetIndex.size;
+  const { logMatrixExponentials, logRootProb } = logProbs;
+  logG = logG || initColumn (treeIndex, alphabetIndex)
+  for (let i = 0; i < alphSize; ++i)
+    logG[0][i] = logRootProb[i]
+  treeIndex.preorderBranches.forEach ((branch, b) => {
+    const logMatrixExp = logMatrixExponentials[b], siblings = treeIndex.siblingsPreorderRank[b[1]];
+    const logGparent = logG[b[0]], logGchild = logG[b[1]], logEsiblings = siblings.map ((s) => logE[s]);
+    for (let cj = 0; cj < alphSize; ++cj) {
+      let logp = -Infinity
+      for (let ci = 0; ci < alphSize; ++ci)
+        logp = logsumexp (logp, logGparent[ci] + logMatrixExp[ci][cj] + logEsiblings.reduce ((l, logEsibling) => l + logEsibling[ci], 0))
+      logGchild[cj] = logp
+    }
+  })
+  return { logG }
+}
+
+// posterior probabilities of node states & branch transitions
+const nodePostProb = (opts) => {
+  const { logF, logG, logL, nodeNum, i } = opts
+  return mathjs.exp (logG[nodeNum][i] + logF[nodeNum][i] - logL)
+}
+
+const branchPostProb = (opts) => {
+  const { logE, logF, logG, logL, branchNum, i, j, treeIndex, logProbs } = opts
+  const { logMatrixExponentials } = logProbs;
+  const { parentPreorderRank } = treeIndex;
+  const b = treeIndex.preorderBranches[branchNum]
+  const parent = b[0], child = b[1], siblings = treeIndex.siblingsPreorderRank[c]
+  return mathjs.exp (logG[parent][i] + logMatrixExponentials[branchNum][i][j] + logF[child][j]
+                     + siblings.reduce ((l, sibling) => l + logE[sibling][i], 0)
+                     - logL)
 }
 
 module.exports = { models,

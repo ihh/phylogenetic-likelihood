@@ -1,0 +1,22 @@
+{
+  "name": "phylogenetic-likelihood",
+  "version": "1.0.0",
+  "description": "Phylogenetic likelihood calculations",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ihh/phylogenetic-likelihood.git"
+  },
+  "author": "Ian Holmes",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ihh/phylogenetic-likelihood/issues"
+  },
+  "homepage": "https://github.com/ihh/phylogenetic-likelihood#readme",
+  "dependencies": {
+    "mathjs": "^6.6.2"
+  }
+}
