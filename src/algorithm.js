@@ -55,10 +55,10 @@ const indexBranchList = (branches) => {
   siblings[root] = []
   let preorderRank = {}
   preorder.forEach ((node, n) => preorderRank[node] = n)
-  const preorderBranches = preorder.slice(1).map ((node) => {
+  const preorderBranches = [null].concat (preorder.slice(1).map ((node) => {
     const branch = branchByChild[node]
     return [ preorderRank[branch[0]], preorderRank[branch[1]], branch[2] ]
-  })
+  }))
   const postorderBranches = preorderBranches.slice(0).reverse()
   const leaves = nodes.filter ((node) => children[node].length == 0)
   const internals = nodes.filter ((node) => children[node].length != 0)
@@ -169,13 +169,15 @@ const fillRootToLeaves = (opts) => {
   for (let i = 0; i < alphSize; ++i)
     logG[0][i] = logRootProb[i]
   treeIndex.preorderBranches.forEach ((branch, b) => {
-    const logMatrixExp = logMatrixExponentials[b], siblings = treeIndex.siblingsPreorderRank[b[1]];
-    const logGparent = logG[b[0]], logGchild = logG[b[1]], logEsiblings = siblings.map ((s) => logE[s]);
-    for (let cj = 0; cj < alphSize; ++cj) {
-      let logp = -Infinity
-      for (let ci = 0; ci < alphSize; ++ci)
-        logp = logsumexp (logp, logGparent[ci] + logMatrixExp[ci][cj] + logEsiblings.reduce ((l, logEsibling) => l + logEsibling[ci], 0))
-      logGchild[cj] = logp
+    if (branch !== null) {
+      const logMatrixExp = logMatrixExponentials[b], siblings = treeIndex.siblingsPreorderRank[b[1]];
+      const logGparent = logG[b[0]], logGchild = logG[b[1]], logEsiblings = siblings.map ((s) => logE[s]);
+      for (let cj = 0; cj < alphSize; ++cj) {
+        let logp = -Infinity
+        for (let ci = 0; ci < alphSize; ++ci)
+          logp = logsumexp (logp, logGparent[ci] + logMatrixExp[ci][cj] + logEsiblings.reduce ((l, logEsibling) => l + logEsibling[ci], 0))
+        logGchild[cj] = logp
+      }
     }
   })
   return { logG }
@@ -188,14 +190,18 @@ const nodePostProb = (opts) => {
 }
 
 const branchPostProb = (opts) => {
-  const { logE, logF, logG, logL, branchNum, i, j, treeIndex, logProbs } = opts
+  const { logE, logF, logG, logL, childNum, i, j, treeIndex, logProbs } = opts
   const { logMatrixExponentials } = logProbs;
-  const { parentPreorderRank } = treeIndex;
-  const b = treeIndex.preorderBranches[branchNum]
+  const b = treeIndex.preorderBranches[childNum]
   const parent = b[0], child = b[1], siblings = treeIndex.siblingsPreorderRank[c]
   return mathjs.exp (logG[parent][i] + logMatrixExponentials[branchNum][i][j] + logF[child][j]
                      + siblings.reduce ((l, sibling) => l + logE[sibling][i], 0)
                      - logL)
+}
+
+const nodePostProfiles = (opts) => {
+  const { treeIndex, model, nodeSeq } = opts
+  // WRITE ME
 }
 
 module.exports = { models,
