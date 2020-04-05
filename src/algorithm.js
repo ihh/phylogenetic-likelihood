@@ -221,8 +221,8 @@ const getNodePostProfiles = (opts) => {
     throw new Error ("Specify tree either as a list of branches or as a NewickJS object, but not both")
   const treeIndex = branchList ? indexBranchList(branchList) : indexNewickJS(newickJS)
   const { preorder, leafPreorderRank, internalPreorderRank } = treeIndex
-  const toLowerCase = isCaseSensitive ? ((x)=>x) : ((x) => typeof(x) === 'undefined' ? x : x.toLowerCase())
-  const preorderNodeSeq = treeIndex.preorder.map ((node) => toLowerCase(nodeSeq[node]))
+  const toUpperCase = isCaseSensitive ? ((x)=>x) : ((x) => typeof(x) === 'undefined' ? x : x.toUpperCase())
+  const preorderNodeSeq = treeIndex.preorder.map ((node) => toUpperCase(nodeSeq[node]))
   const preorderNodeProfile = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? [] : undefined)
   if (leafPreorderRank.filter ((leaf) => typeof(preorderNodeSeq[leaf]) === 'undefined').length)
     throw new Error ("All leaf nodes must have sequences specified")
