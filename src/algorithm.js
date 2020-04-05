@@ -84,16 +84,17 @@ const indexAlphabet = (alphabet) => {
   const charToIndex = {}
   chars.forEach ((c, i) => charToIndex[c] = i)
   const initMissing = new Float32Array (alphabet.length).fill(0)
+  const initForChar = chars.map ((c, i) => {
+    const a = new Float32Array (alphabet.length).fill(-Infinity);
+    a[i] = 0;
+    return a;
+  })
   return {
     alphSize: alphabet.length,
     chars,
     charToIndex,
-    initForChar: chars.map ((c, i) => {
-      const a = new Float32Array (alphabet.length).fill(-Infinity);
-      a[i] = 0;
-      return a;
-    }),
     initMissing,
+    initForChar,
     init: (c) => {
       const i = charToIndex[c]
       return typeof(i) === 'undefined' ? initMissing : initForChar[i]
@@ -111,7 +112,7 @@ const getLogProbs = (model, treeIndex) => {
         rateMatrix[i][i] -= rateMatrix[i][j];
     })
   })
-  const logMatrixExponentials = treeIndex.preorderBranches.map ((branch) => branch === null ? null : mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
+  const logMatrixExponentials = treeIndex.preorderBranches.map ((branch) => branch === null ? null : mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))).toArray())
   const logRootProb = chars.map ((c) => mathjs.log (model.rootprob[c]))
   return { logMatrixExponentials, logRootProb }
 }
@@ -122,23 +123,29 @@ const initColumn = (treeIndex, alphabetIndex) => {
     .map (() => new Float32Array (alphabetIndex.alphSize))
 }
 
-const logsumexp = (a, b) => Math.max (a, b) + Math.log (1 + Math.exp (-Math.abs (a - b)));
+const logsumexp = (a, b) => {
+  const max = Math.max (a, b)
+  return (max == -Infinity
+          ? max
+          : (max + Math.log (1 + Math.exp (-Math.abs (a - b)))))
+}
 
 // logF[node][state] = P(observations under node|state of node)
 // logE[node][state] = P(observations under node|state of node's parent)
 // logL = log-likelihood of entire column
 const fillLeavesToRoot = (opts) => {
-  let { treeIndex, alphabetIndex, columnChars, model, logProbs, logF, logE } = opts
+  const { treeIndex, alphabetIndex, columnChars, model, logProbs } = opts
+  let { logF, logE } = opts
   const nodes = treeIndex.nodes.length
   const { alphSize } = alphabetIndex
   const { logMatrixExponentials, logRootProb } = logProbs;
   logE = logE || initColumn (treeIndex, alphabetIndex)
   logF = logF || initColumn (treeIndex, alphabetIndex)
   treeIndex.leafPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.init (columnChars[leaf])))
-  treeIndex.internalPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.initForMissing))
-  treeIndex.postorderBranches.forEach ((branch, b) => {
-    if (branch !== null) {
-      const logMatrixExp = logMatrixExponentials[b];
+  treeIndex.internalPreorderRank.forEach ((internal) => logF[internal].set (alphabetIndex.initMissing))
+  treeIndex.postorderBranches.forEach ((b) => {
+    if (b !== null) {
+      const logMatrixExp = logMatrixExponentials[b[1]];
       const logFparent = logF[b[0]], logFchild = logF[b[1]], logEchild = logE[b[1]];
       for (let ci = 0; ci < alphSize; ++ci) {
         let logp = -Infinity
@@ -158,16 +165,17 @@ const fillLeavesToRoot = (opts) => {
 
 // logG[node][state] = P(observations not under node,state of node)
 const fillRootToLeaves = (opts) => {
-  const { treeIndex, alphabetIndex, columnChars, logProbs, logF, logE, logG } = opts
+  const { treeIndex, alphabetIndex, columnChars, logProbs } = opts
+  let { logF, logE, logG } = opts
   const nodes = treeIndex.nodes.length
   const { alphSize } = alphabetIndex
   const { logMatrixExponentials, logRootProb } = logProbs;
   logG = logG || initColumn (treeIndex, alphabetIndex)
   for (let i = 0; i < alphSize; ++i)
     logG[0][i] = logRootProb[i]
-  treeIndex.preorderBranches.forEach ((branch, b) => {
-    if (branch !== null) {
-      const logMatrixExp = logMatrixExponentials[b], siblings = treeIndex.siblingsPreorderRank[b[1]];
+  treeIndex.preorderBranches.forEach ((b) => {
+    if (b !== null) {
+      const logMatrixExp = logMatrixExponentials[b[1]], siblings = treeIndex.siblingsPreorderRank[b[1]];
       const logGparent = logG[b[0]], logGchild = logG[b[1]], logEsiblings = siblings.map ((s) => logE[s]);
       for (let cj = 0; cj < alphSize; ++cj) {
         let logp = -Infinity
@@ -198,7 +206,8 @@ const branchPostProb = (opts) => {
 
 const defaultModel = 'LeGascuel'
 const getNodePostProfiles = (opts) => {
-  let { branchList, nodeSeq, model, postProbThreshold } = opts
+  const { branchList, nodeSeq, isCaseSensitive } = opts
+  let { model, postProbThreshold } = opts
   model = model || models[defaultModel]
   const alphabetIndex = indexAlphabet (model.alphabet)
   const { alphSize, chars } = alphabetIndex
@@ -206,7 +215,8 @@ const getNodePostProfiles = (opts) => {
     postProbThreshold = 1 / (2 * alphSize)
   const treeIndex = indexBranchList (branchList)
   const { preorder, leafPreorderRank, internalPreorderRank } = treeIndex
-  const preorderNodeSeq = treeIndex.preorder.map ((node) => nodeSeq[node])
+  const toLowerCase = isCaseSensitive ? ((x)=>x) : ((x) => typeof(x) === 'undefined' ? x : x.toLowerCase())
+  const preorderNodeSeq = treeIndex.preorder.map ((node) => toLowerCase(nodeSeq[node]))
   const preorderNodeProfile = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? [] : undefined)
   if (leafPreorderRank.filter ((leaf) => typeof(preorderNodeSeq[leaf]) === 'undefined').length)
     throw new Error ("All leaf nodes must have sequences specified")
@@ -219,7 +229,7 @@ const getNodePostProfiles = (opts) => {
   const logG = initColumn (treeIndex, alphabetIndex)
   for (let col = 0; col < columns; ++col) {
     const columnChars = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? undefined : seq.charAt(col))
-    fillLeavesToRoot ({ treeIndex, alphabetIndex, columnChars, model, logProbs, logF, logE })
+    const { logL } = fillLeavesToRoot ({ treeIndex, alphabetIndex, columnChars, model, logProbs, logF, logE })
     fillRootToLeaves ({ treeIndex, alphabetIndex, columnChars, logProbs, logF, logE, logG })
     internalPreorderRank.forEach ((nodeNum) => {
       let profile = preorderNodeProfile[nodeNum]
@@ -243,6 +253,7 @@ module.exports = { models,
                    indexBranchList,
                    indexAlphabet,
                    getLogProbs,
+                   logsumexp,
                    initColumn,
                    fillLeavesToRoot,
                    fillRootToLeaves,
