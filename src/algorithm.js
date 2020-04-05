@@ -11,18 +11,12 @@ const getRoots = (branches) => {
 }
 
 const indexBranchList = (branches) => {
-  let { root } = data, rootSpecified = typeof(root) !== 'undefined'
   const roots = getRoots (branches)
-  if (roots.length == 0 && (branches.length > 0 || !rootSpecified))
+  if (roots.length == 0)
     throw new Error ("No root nodes")
-  if (rootSpecified) {
-    if (roots.indexOf(root) < 0)
-      throw new Error ("Specified root node is not a root")
-  } else {
-    if (roots.length != 1)
-      throw new Error ("Multiple possible root nodes, and no root specified")
-    root = roots[0]
-  }
+  if (roots.length > 1)
+    throw new Error ("Multiple possible root nodes")
+  const root = roots[0]
   let children = {}, parent = {}, branchLength = {}, branchByChild = {}
   children[root] = []
   branchLength[root] = 0
@@ -35,7 +29,7 @@ const indexBranchList = (branches) => {
     branchLength[child] = len
     branchByChild[child] = branch
   })
-  let descendants = {}, siblings = {}, distFromRoot = {}, maxDistFromRoot = 0
+  let seenNode = {}, descendants = {}, siblings = {}, distFromRoot = {}, maxDistFromRoot = 0
   const getSubtree = (node, parent) => {
     if (!node)
       throw new Error ("All nodes must be named")
@@ -89,6 +83,7 @@ const indexAlphabet = (alphabet) => {
   const chars = alphabet.split('')
   const charToIndex = {}
   chars.forEach ((c, i) => charToIndex[c] = i)
+  const initMissing = new Float32Array (alphabet.length).fill(0)
   return {
     alphSize: alphabet.length,
     chars,
@@ -98,7 +93,7 @@ const indexAlphabet = (alphabet) => {
       a[i] = 0;
       return a;
     }),
-    initMissing: new Float32Array (alphabet.length).fill(0),
+    initMissing,
     init: (c) => {
       const i = charToIndex[c]
       return typeof(i) === 'undefined' ? initMissing : initForChar[i]
@@ -116,8 +111,8 @@ const getLogProbs = (model, treeIndex) => {
         rateMatrix[i][i] -= rateMatrix[i][j];
     })
   })
-  const logMatrixExponentials = treeIndex.preorderBranches.map ((branch) => mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
-  const logRootProb = model.rootprob.map ((p) => mathjs.log(p))
+  const logMatrixExponentials = treeIndex.preorderBranches.map ((branch) => branch === null ? null : mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
+  const logRootProb = chars.map ((c) => mathjs.log (model.rootprob[c]))
   return { logMatrixExponentials, logRootProb }
 }
 
@@ -142,14 +137,16 @@ const fillLeavesToRoot = (opts) => {
   treeIndex.leafPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.init (columnChars[leaf])))
   treeIndex.internalPreorderRank.forEach ((leaf) => logF[leaf].set (alphabetIndex.initForMissing))
   treeIndex.postorderBranches.forEach ((branch, b) => {
-    const logMatrixExp = logMatrixExponentials[b];
-    const logFparent = logF[b[0]], logFchild = logF[b[1]], logEchild = logE[b[1]];
-    for (let ci = 0; ci < alphSize; ++ci) {
-      let logp = -Infinity
-      for (let cj = 0; cj < alphSize; ++cj)
-        logp = logsumexp (logp, logMatrixExp[ci][cj] + logFchild[cj])
-      logEchild[ci] = logp
-      logFparent[ci] += logp
+    if (branch !== null) {
+      const logMatrixExp = logMatrixExponentials[b];
+      const logFparent = logF[b[0]], logFchild = logF[b[1]], logEchild = logE[b[1]];
+      for (let ci = 0; ci < alphSize; ++ci) {
+        let logp = -Infinity
+        for (let cj = 0; cj < alphSize; ++cj)
+          logp = logsumexp (logp, logMatrixExp[ci][cj] + logFchild[cj])
+        logEchild[ci] = logp
+        logFparent[ci] += logp
+      }
     }
   })
   let logL = -Infinity
