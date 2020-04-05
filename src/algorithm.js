@@ -85,8 +85,6 @@ const getNewickJSBranchList = (newickJS) => {
   return branches
 }
 
-const indexNewickJS = (newickJS) => indexBranchList (getNewickJSBranchList (newickJS));
-
 const indexAlphabet = (alphabet) => {
   const chars = alphabet.split('')
   const charToIndex = {}
@@ -110,13 +108,13 @@ const indexAlphabet = (alphabet) => {
 
 const getLogProbs = (model, treeIndex) => {
   const chars = model.alphabet.split('')
-  const rateMatrix = chars.map ((ci, i) => chars.map (cj, j) => model.subrate[ci][cj] || 0)
+  const rateMatrix = chars.map ((ci, i) => chars.map ((cj, j) => model.subrate[ci][cj] || 0))
   chars.forEach ((ci, i) => {
     rateMatrix[i][i] = 0;
-    chars.forEach (cj, j) => {
+    chars.forEach ((cj, j) => {
       if (i != j)
         rateMatrix[i][i] -= rateMatrix[i][j];
-    }
+    })
   })
   const logMatrixExponentials = treeIndex.preorderBranches.map ((branch) => mathjs.log (mathjs.expm (mathjs.multiply (rateMatrix, branch[2]))))
   const logRootProb = model.rootprob.map ((p) => mathjs.log(p))
@@ -201,19 +199,23 @@ const branchPostProb = (opts) => {
                      - logL)
 }
 
+const defaultModel = 'LeGascuel'
 const getNodePostProfiles = (opts) => {
-  const { treeIndex, model, nodeSeq } = opts
-  let { postProbThreshold } = opts
-  const { preorder, leafPreorderRank, internalPreorderRank } = treeIndex
-  const preorderNodeSeq = treeIndex.preorder.map ((node) => nodeSeq[node])
-  const preorderNodeProfile = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? [] : undefined)
-  leafPreorderRank.forEach ((leaf) => if (typeof(preorderNodeSeq[leaf]) === 'undefined') throw new Error ("All leaf nodes should have sequences specified"))
-  internalPreorderRank.forEach ((internal) => if (typeof(preorderNodeSeq[internal]) !== 'undefined') throw new Error ("No internal nodes should have sequences specified"))
-  const columns = preorderNodeSeq.reduce ((cols, seq) => typeof(seq) !== 'undefined' && seq.length > cols ? seq.length : cols, 0)
+  let { branchList, nodeSeq, model, postProbThreshold } = opts
+  model = model || models[defaultModel]
   const alphabetIndex = indexAlphabet (model.alphabet)
   const { alphSize, chars } = alphabetIndex
   if (typeof(postProbThreshold) === 'undefined')
     postProbThreshold = 1 / (2 * alphSize)
+  const treeIndex = indexBranchList (branchList)
+  const { preorder, leafPreorderRank, internalPreorderRank } = treeIndex
+  const preorderNodeSeq = treeIndex.preorder.map ((node) => nodeSeq[node])
+  const preorderNodeProfile = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? [] : undefined)
+  if (leafPreorderRank.filter ((leaf) => typeof(preorderNodeSeq[leaf]) === 'undefined').length)
+    throw new Error ("All leaf nodes must have sequences specified")
+  if (internalPreorderRank.filter ((internal) => typeof(preorderNodeSeq[internal]) !== 'undefined').length)
+    throw new Error ("No internal nodes may have sequences specified")
+  const columns = preorderNodeSeq.reduce ((cols, seq) => typeof(seq) !== 'undefined' && seq.length > cols ? seq.length : cols, 0)
   const logProbs = getLogProbs (model, treeIndex)
   const logE = initColumn (treeIndex, alphabetIndex)
   const logF = initColumn (treeIndex, alphabetIndex)
@@ -234,12 +236,13 @@ const getNodePostProfiles = (opts) => {
     })
   }
   let nodeProfile = {}
-  preorderNodeProfile.forEach ((profile, nodeNum) => if (typeof(profile) !== 'undefined') nodeProfile[preorder[nodeNum]] = profile)
+  preorderNodeProfile.forEach ((profile, nodeNum) => { if (typeof(profile) !== 'undefined') nodeProfile[preorder[nodeNum]] = profile })
   return { nodeProfile }
 }
 
 module.exports = { models,
-                   indexNewickJS,
+                   defaultModel,
+                   getNewickJSBranchList,
                    indexBranchList,
                    indexAlphabet,
                    getLogProbs,
