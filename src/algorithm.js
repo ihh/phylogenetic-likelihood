@@ -79,6 +79,8 @@ const getNewickJSBranchList = (newickJS) => {
   return branches
 }
 
+const indexNewickJS = (newickJS) => indexBranchList (getNewickJSBranchList (newickJS))
+
 const indexAlphabet = (alphabet) => {
   const chars = alphabet.split('')
   const charToIndex = {}
@@ -206,14 +208,18 @@ const branchPostProb = (opts) => {
 
 const defaultModel = 'LeGascuel'
 const getNodePostProfiles = (opts) => {
-  const { branchList, nodeSeq, isCaseSensitive } = opts
+  const { branchList, newickJS, nodeSeq, isCaseSensitive } = opts
   let { model, postProbThreshold } = opts
   model = model || models[defaultModel]
   const alphabetIndex = indexAlphabet (model.alphabet)
   const { alphSize, chars } = alphabetIndex
   if (typeof(postProbThreshold) === 'undefined')
     postProbThreshold = 1 / (2 * alphSize)
-  const treeIndex = indexBranchList (branchList)
+  if (!branchList && !newickJS)
+    throw new Error ("You must specify a tree, either as a list of branches or as a NewickJS object")
+  if (branchList && newickJS)
+    throw new Error ("Specify tree either as a list of branches or as a NewickJS object, but not both")
+  const treeIndex = branchList ? indexBranchList(branchList) : indexNewickJS(newickJS)
   const { preorder, leafPreorderRank, internalPreorderRank } = treeIndex
   const toLowerCase = isCaseSensitive ? ((x)=>x) : ((x) => typeof(x) === 'undefined' ? x : x.toLowerCase())
   const preorderNodeSeq = treeIndex.preorder.map ((node) => toLowerCase(nodeSeq[node]))
