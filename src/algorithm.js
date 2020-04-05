@@ -236,7 +236,7 @@ const getNodePostProfiles = (opts) => {
     })
   }
   let nodeProfile = {}
-  preorderNodeProfile.forEach ((profile, nodeNum) => { if (typeof(profile) !== 'undefined') nodeProfile[preorder[nodeNum]] = profile })
+  internalPreorderRank.forEach ((internal) => nodeProfile[preorder[internal]] = preorderNodeProfile[internal])
   return { nodeProfile }
 }
 
