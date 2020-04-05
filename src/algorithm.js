@@ -92,7 +92,7 @@ const indexAlphabet = (alphabet) => {
   const charToIndex = {}
   chars.forEach ((c, i) => charToIndex[c] = i)
   return {
-    size: alphabet.length,
+    alphSize: alphabet.length,
     chars,
     charToIndex,
     initForChar: chars.map ((c, i) => {
@@ -126,7 +126,7 @@ const getLogProbs = (model, treeIndex) => {
 // initColumn allocates the logE, logF, and logG data structures
 const initColumn = (treeIndex, alphabetIndex) => {
   return new Array (treeIndex.nodes.length).fill(0)
-    .map (() => new Float32Array (alphabetIndex.size))
+    .map (() => new Float32Array (alphabetIndex.alphSize))
 }
 
 const logsumexp = (a, b) => Math.max (a, b) + Math.log (1 + Math.exp (-Math.abs (a - b)));
@@ -136,7 +136,8 @@ const logsumexp = (a, b) => Math.max (a, b) + Math.log (1 + Math.exp (-Math.abs 
 // logL = log-likelihood of entire column
 const fillLeavesToRoot = (opts) => {
   let { treeIndex, alphabetIndex, columnChars, model, logProbs, logF, logE } = opts
-  const nodes = treeIndex.nodes.length, alphSize = alphabetIndex.size;
+  const nodes = treeIndex.nodes.length
+  const { alphSize } = alphabetIndex
   const { logMatrixExponentials, logRootProb } = logProbs;
   logE = logE || initColumn (treeIndex, alphabetIndex)
   logF = logF || initColumn (treeIndex, alphabetIndex)
@@ -163,7 +164,8 @@ const fillLeavesToRoot = (opts) => {
 // logG[node][state] = P(observations not under node,state of node)
 const fillRootToLeaves = (opts) => {
   const { treeIndex, alphabetIndex, columnChars, logProbs, logF, logE, logG } = opts
-  const nodes = treeIndex.nodes.length, alphSize = alphabetIndex.size;
+  const nodes = treeIndex.nodes.length
+  const { alphSize } = alphabetIndex
   const { logMatrixExponentials, logRootProb } = logProbs;
   logG = logG || initColumn (treeIndex, alphabetIndex)
   for (let i = 0; i < alphSize; ++i)
@@ -199,12 +201,51 @@ const branchPostProb = (opts) => {
                      - logL)
 }
 
-const nodePostProfiles = (opts) => {
+const getNodePostProfiles = (opts) => {
   const { treeIndex, model, nodeSeq } = opts
-  // WRITE ME
+  let { postProbThreshold } = opts
+  const { preorder, leafPreorderRank, internalPreorderRank } = treeIndex
+  const preorderNodeSeq = treeIndex.preorder.map ((node) => nodeSeq[node])
+  const preorderNodeProfile = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? [] : undefined)
+  leafPreorderRank.forEach ((leaf) => if (typeof(preorderNodeSeq[leaf]) === 'undefined') throw new Error ("All leaf nodes should have sequences specified"))
+  internalPreorderRank.forEach ((internal) => if (typeof(preorderNodeSeq[internal]) !== 'undefined') throw new Error ("No internal nodes should have sequences specified"))
+  const columns = preorderNodeSeq.reduce ((cols, seq) => typeof(seq) !== 'undefined' && seq.length > cols ? seq.length : cols, 0)
+  const alphabetIndex = indexAlphabet (model.alphabet)
+  const { alphSize, chars } = alphabetIndex
+  if (typeof(postProbThreshold) === 'undefined')
+    postProbThreshold = 1 / (2 * alphSize)
+  const logProbs = getLogProbs (model, treeIndex)
+  const logE = initColumn (treeIndex, alphabetIndex)
+  const logF = initColumn (treeIndex, alphabetIndex)
+  const logG = initColumn (treeIndex, alphabetIndex)
+  for (let col = 0; col < columns; ++col) {
+    const columnChars = preorderNodeSeq.map ((seq) => typeof(seq) === 'undefined' ? undefined : seq.charAt(col))
+    fillLeavesToRoot ({ treeIndex, alphabetIndex, columnChars, model, logProbs, logF, logE })
+    fillRootToLeaves ({ treeIndex, alphabetIndex, columnChars, logProbs, logF, logE, logG })
+    internalPreorderRank.forEach ((nodeNum) => {
+      let profile = preorderNodeProfile[nodeNum]
+      let colProfile = {}
+      for (let i = 0; i < alphSize; ++i) {
+        const p = nodePostProb ({ logF, logG, logL, nodeNum, i })
+        if (p >= postProbThreshold)
+          colProfile[chars[i]] = p
+      }
+      profile.push (colProfile)
+    })
+  }
+  let nodeProfile = {}
+  preorderNodeProfile.forEach ((profile, nodeNum) => if (typeof(profile) !== 'undefined') nodeProfile[preorder[nodeNum]] = profile)
+  return { nodeProfile }
 }
 
 module.exports = { models,
                    indexNewickJS,
-                   indexBranchList };
+                   indexBranchList,
+                   indexAlphabet,
+                   getLogProbs,
+                   initColumn,
+                   fillLeavesToRoot,
+                   fillRootToLeaves,
+                   getNodePostProfiles
+                 };
 
