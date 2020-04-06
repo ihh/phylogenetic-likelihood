@@ -250,7 +250,7 @@ const getNodePostProfiles = (opts) => {
   }
   let nodeProfile = {}
   internalPreorderRank.forEach ((internal) => nodeProfile[preorder[internal]] = preorderNodeProfile[internal])
-  return { nodeProfile }
+  return { nodeProfile, treeIndex }
 }
 
 module.exports = { models,
