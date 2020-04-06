@@ -85,21 +85,23 @@ const indexAlphabet = (alphabet, defaultGapChar) => {
   const chars = alphabet.split('')
   const charToIndex = {}
   chars.forEach ((c, i) => charToIndex[c] = i)
-  const initForChar = chars.map ((c, i) => {
+  const initChar = chars.map ((c, i) => {
     const a = new Float32Array (alphabet.length).fill(-Infinity);
     a[i] = 0;
     return a;
   })
-  const initMissing = defaultGapChar ? initForChar[defaultGapChar] : new Float32Array (alphabet.length).fill(0)
+  const initMissing = new Float32Array (alphabet.length).fill(0)
+  const initGap = (defaultGapChar && chars.indexOf(defaultGapChar) >= 0) ? initChar[chars.indexOf(defaultGapChar)] : initMissing
   return {
     alphSize: alphabet.length,
     chars,
     charToIndex,
     initMissing,
-    initForChar,
+    initGap,
+    initChar,
     init: (c) => {
       const i = charToIndex[c]
-      return typeof(i) === 'undefined' ? initMissing : initForChar[i]
+      return typeof(i) === 'undefined' ? initGap : initChar[i]
     }
   }
 }
