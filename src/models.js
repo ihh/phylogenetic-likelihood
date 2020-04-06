@@ -1,3 +1,4 @@
+// Le & Gascuel, 2008
 const LeGascuel = {
   alphabet: "ARNDCQEGHILKMFPSTWYV",
   rootprob: {
@@ -446,4 +447,29 @@ const LeGascuel = {
   }
 };
 
-module.exports = { LeGascuel };
+const makeGappedModel = (opts) => {
+  let { model, deletionRate, gapChar, gapFreq } = opts;
+  deletionRate = deletionRate || 0.05;  // Miklos, Lunter & Holmes, 2004
+  gapChar = gapChar || '-';
+  gapFreq = gapFreq || 0.5;
+  const insertionRate = deletionRate * gapFreq / (1 - gapFreq);
+  const alphabet = model.alphabet.split('');
+  const gappedModel = { alphabet: model.alphabet + gapChar,
+                        rootprob: {},
+                        subrate: {} };
+  gappedModel.rootprob[gapChar] = gapFreq;
+  gappedModel.subrate[gapChar] = {};
+  alphabet.forEach ((c) => {
+    gappedModel.rootprob[c] = (1 - gapFreq) * model.rootprob[c];
+    gappedModel.subrate[c] = {};
+    Object.keys(model.subrate[c]).forEach ((d) => {
+      gappedModel.subrate[c][d] = model.subrate[c][d];
+    });
+    gappedModel.subrate[gapChar][c] = model.rootprob[c] * insertionRate;
+    gappedModel.subrate[c][gapChar] = deletionRate;
+  })
+  return gappedModel;
+}
+
+module.exports = { LeGascuel,
+                   makeGappedModel };

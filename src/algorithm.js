@@ -81,16 +81,16 @@ const getNewickJSBranchList = (newickJS) => {
 
 const indexNewickJS = (newickJS) => indexBranchList (getNewickJSBranchList (newickJS))
 
-const indexAlphabet = (alphabet) => {
+const indexAlphabet = (alphabet, defaultGapChar) => {
   const chars = alphabet.split('')
   const charToIndex = {}
   chars.forEach ((c, i) => charToIndex[c] = i)
-  const initMissing = new Float32Array (alphabet.length).fill(0)
   const initForChar = chars.map ((c, i) => {
     const a = new Float32Array (alphabet.length).fill(-Infinity);
     a[i] = 0;
     return a;
   })
+  const initMissing = defaultGapChar ? initForChar[defaultGapChar] : new Float32Array (alphabet.length).fill(0)
   return {
     alphSize: alphabet.length,
     chars,
@@ -208,10 +208,10 @@ const branchPostProb = (opts) => {
 
 const defaultModel = 'LeGascuel'
 const getNodePostProfiles = (opts) => {
-  const { branchList, newickJS, nodeSeq, isCaseSensitive } = opts
+  const { branchList, newickJS, nodeSeq, isCaseSensitive, defaultGapChar } = opts
   let { model, postProbThreshold } = opts
   model = model || models[defaultModel]
-  const alphabetIndex = indexAlphabet (model.alphabet)
+  const alphabetIndex = indexAlphabet (model.alphabet, defaultGapChar)
   const { alphSize, chars } = alphabetIndex
   if (typeof(postProbThreshold) === 'undefined')
     postProbThreshold = 1 / (2 * alphSize)
